@@ -9,7 +9,7 @@
  * 
  * Features:
  * 
- * - handles both documents with an EntityDescriptor (containing multiple embedded
+ * - handles both documents with an EntitiesDescriptor (containing multiple embedded
  *   EntityDescriptor's) and "flat" files with one or more EntityDescriptor's
  *   
  * - augments the SAML 2.0 metadata with PingFederate specific configuration
