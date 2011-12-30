@@ -28,7 +28,7 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
- * 
+/* 
  * This script imports SAML 2.0/SAML 1.1 connections defined in SAML 2.0
  * metadata documents into PingFederate by augmenting the metadata document
  * with PingFederate connection specific configuration settings and upload
