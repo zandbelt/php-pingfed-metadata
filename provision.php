@@ -1,6 +1,6 @@
 <?php
 /***************************************************************************
- * Copyright (C) 2011 Ping Identity Corporation
+ * Copyright (C) 2011-2012 Ping Identity Corporation
  * All rights reserved.
  *
  * The contents of this file are the property of Ping Identity Corporation.
@@ -32,7 +32,7 @@
  * This script imports SAML 2.0/SAML 1.1 connections defined in SAML 2.0
  * metadata documents into PingFederate by augmenting the metadata document
  * with PingFederate connection specific configuration settings and upload
- * it using the Connection Manager webservice API.
+ * it using PingFederate's Connection Manager webservice API.
  * 
  * Features:
  * 
@@ -45,7 +45,7 @@
  *   - SP/IDP adapter instance
  *   - attribute contract fulfilment and attribute mappings
  *   - signing key
- *   - allowable bindinsgs (Redirect,POST,SOAP,Artifact)
+ *   - allowable bindings (Redirect,POST,SOAP,Artifact)
  *   - dummy SOAP backchannel credentials (see below)
  *   
  * - will generate unique "friendly connection names" based organization info
@@ -66,10 +66,8 @@
  *   
  * Known Issues:
  * 
- *  - Signature verification on a very large set of metadata may fail because of a bug
- *    in libxml2 canonicalization (canonicalization will stall). This is the case for the
- *    InCommon and UK Access Federation metadata: unfortunately signature verification must
- *    be switched off or those.
+ *  - signature verification on a very large set of metadata may take very long (many minutes).
+ *    This is the case for the InCommon and UK Access Federation metadata.
  *    
  *  - some federations (in fact maybe only UK Access Federation by now) may still contain IDPs
  *    that base their signing key material on the now deprecated method of named keys that refer
@@ -89,12 +87,9 @@
  *
  * TBD:
  * 
- * - support PHP-only canonicalization routines to workaround the libxml2 canonicalization bug
- * 
+ * - speed up canonicalization
  * - support for DataSources
- * 
  * - support for nested EntitiesDescriptor's (?)
- * 
  * - the script is self-contained now but it may be better to rely on libraries for:
  *   - soap (SoapClient), including SSL server certificate validation
  *   - metatata url retrieval (CURL)
@@ -108,30 +103,14 @@
  *    it and would not be able to support those extensions (eg. shib scope) anyway.
  * 
  *  - Import of a large number of entities may take a considerable time
- *    (eg. 25 mins for 700 entities).
+ *    (eg. 8.5 mins for 886 entities on a MacBook Air 1.7 GHz Intel Core i5).
  *
  *  - Be sure to switch off auto-connection-validation in the System Options of the Server
  *    Settings of the PingFederate management console to avoid an unusably slow console
  *    when dealing with a large number of connections.
  *  
- *  
  * @Author: Hans Zandbelt - hzandbelt@pingidentity.com
  *
- *
- * Copyright (C) 2011 Ping Identity Corporation
- * All rights reserved.
- *
- * The contents of this file are the property of Ping Identity Corporation.
- * You may not copy or use this file, in either source code or executable
- * form, except in compliance with terms set by Ping Identity Corporation.
- * For further information please contact:
- *
- *      Ping Identity Corporation
- *      1099 18th St Suite 2950
- *      Denver, CO 80202
- *      303.468.2900
- *      http://www.pingidentity.com
- *      
  **************************************************************************/
 
 $config = array(
@@ -145,8 +124,7 @@ $config = array(
 	// alternatively download it to disk first, then refer to it as a file on disk (better performance in testing...)
 #	'metadata-url' => 'InCommon-metadata.xml',
 
-	// path to certificate with he public key to veryify the metadata that is downloaded
-	// TODO: don't verify InCommon metadata because of a bug in libxml2 canonicalization; create alternative PHP-only canonicalization routine
+	// path to certificate with he public key to verify the metadata that is downloaded
 #	'metadata-certificate' => 'InCommon-metadata.pem',
 
 #	'metadata-url' => 'http://metadata.ukfederation.org.uk/ukfederation-metadata.xml',
@@ -160,65 +138,29 @@ $config = array(
 	// the password for the connection management API as configured in the API settings on the PingFederate admin console
 	'password' => 'Changeme1',
 
-	// the fingerprint of the private key that you want to use to sign outgoing SAML messages
-	// copy this from the certificate management detail screen
-	'signing-key-fingerprint' => 'B12B687C1E6F3AB59E05823D7C19CF8F',
+	// the MD5 fingerprint of the private key that you want to use to sign outgoing SAML messages
+	// copy this from the certificate management detail screen in the "Digital Signing & XML Decryption Keys & Certificates" section
+	'signing-key-fingerprint' => '13E192DEF158C6185C41D0DDE954F0AB',
 
 	// settings for the IDP and SP adapter that gets configured for the IDP and SP connections respectively
 	'adapter' => array(
 		// IDP adapter settings
 		'idp' => array(
 			// IDP adapter instance identifier
-			'instance' => 'LDAPADAPTER0',
-			// attribute map: assertion-name => adapter-name
+			'instance' => 'idpadapter',
+			// attribute map: assertion-name => adapter-name; default value is to map the SAML subject in to the attribute value
 			'attribute-map' => array(
+				// TODO: extend to non-adapter attribute soruces, ie. datasources				
 				'SAML_SUBJECT' => 'subject',
-				// TODO: this is a superset for large federations for which unused entries are ignored
-				//       we actually need datasource spec for this + attr contract spec
-				
-				// InCommon superset of attributes
-				'urn:mace:dir:attribute-def:eduPersonPrincipalName' => 'subject',
 				'urn:mace:dir:attribute-def:givenName' => 'subject',
 				'urn:mace:dir:attribute-def:mail' => 'subject',
-				'urn:mace:dir:attribute-def:sn' => 'subject',
-				'urn:oid:0.9.2342.19200300.100.1.3' => 'subject',
-				'urn:oid:1.3.6.1.4.1.5923.1.1.1.6' => 'subject',
-				'urn:oid:2.5.4.4' => 'subject',
-				'urn:oid:2.5.4.42' => 'subject',
-				'urn:mace:dir:attribute-def:cn' => 'subject',
-				'urn:mace:dir:attribute-def:displayName' => 'subject',
-				'urn:oid:2.16.840.1.113730.3.1.241' => 'subject',
-				'urn:oid:2.5.4.3' => 'subject',
-				'urn:oid:1.3.6.1.4.1.5923.1.1.1.10' => 'subject',
-				'urn:mace:dir:attribute-def:eduPersonAffiliation' => 'subject',
-				'urn:mace:dir:attribute-def:eduPersonEntitlement' => 'subject',
-				'urn:oid:1.3.6.1.4.1.5923.1.1.1.1' => 'subject',
-				'urn:oid:1.3.6.1.4.1.5923.1.1.1.7' => 'subject',
-
-				// UK Access Federation superset of attributes
-				'dk:gov:saml:attribute:AssuranceLevel' => 'subject',
-				'dk:gov:saml:attribute:CprNumberIdentifier' => 'subject',
-				'dk:gov:saml:attribute:CvrNumberIdentifier' => 'subject',
-				'dk:gov:saml:attribute:IsYouthCert' => 'subject',
-				'dk:gov:saml:attribute:PidNumberIdentifier' => 'subject',
-				'dk:gov:saml:attribute:RidNumberIdentifier' => 'subject',
-				'dk:gov:saml:attribute:SpecVer' => 'subject',
-				'dk:gov:saml:attribute:UniqueAccountKey' => 'subject',
-				'urn:oid:0.9.2342.19200300.100.1.1' => 'subject',
-				'urn:oid:1.3.6.1.4.1.1466.115.121.1.8' => 'subject',
-				'urn:oid:2.5.4.10' => 'subject',
-				'urn:oid:2.5.4.11' => 'subject',
-				'urn:oid:2.5.4.12' => 'subject',
-				'urn:oid:2.5.4.16' => 'subject',
-				'urn:oid:2.5.4.5' => 'subject',
-				'urn:oid:2.5.4.65' => 'subject',
-
+				'urn:mace:dir:attribute-def:sn' => 'subject',				
 			),
 		),
 		// SP adapter settings
 		'sp' => array(
 			// IDP adapter instance identifier
-			'instance' => 'OTKAPACHE0',
+			'instance' => 'spadapter',
 			// attribute map: adapter-name => assertion-name
 			'attribute-map' => array(
 				'subject' => 'SAML_SUBJECT',
@@ -251,8 +193,9 @@ $config = array(
 	# listing an entry in "exclude" means that its connection information will not be processed
 	'exclude' => array(
 	),
-	# listing an entry in "include" means that alle entities not listed here will be ignored
+	# listing an entry in "include" means that all entities not listed here will be ignored
 	'include' => array(
+#		'https://sh2testsp1.iay.org.uk/shibboleth',
 	),
 	
 	# don't touch: for internal state keeping purposes to generate unique friendly names
@@ -281,7 +224,7 @@ function xml_sig_verify($doc, $cert) {
 		$signedInfo = $xp->query(".//ds:SignedInfo", $signature)->item(0)->C14N(true, false);
 		$signature->parentNode->removeChild($signature);
 		if ($cert !== NULL) {
-			echo " # INFO: canonicalizing metadata; this may stall if the document is large (and you must retry without signature verification)...\n";
+			echo " # INFO: canonicalizing metadata; this may take very long  if the document is large (many minutes)...\n";
 			$canonicalXml = $doc->documentElement->C14N(true, false);
 			echo " # INFO: canonicalizing metadata finished OK!\n";
 			$digestMatches = (base64_encode(sha1($canonicalXml, true)) == $digestValue);
@@ -453,13 +396,24 @@ function pf_connection_create_sp(&$cfg, $doc, $xpath, $desc, $sp_desc, $entityid
 	$mapping = $doc->createElement('urn:AdapterToAssertionMapping');
 	$mapping->setAttribute('AdapterInstanceId', $cfg['adapter']['idp']['instance']);
 	$default_map = $doc->createElement('urn:DefaultAttributeMapping');	
-	foreach ($cfg['adapter']['idp']['attribute-map'] as $key => $value) {
-		$map = $doc->createElement('urn:AttributeMap');
-		$map->setAttribute('Value', $value);
-		$map->setAttribute('Type', 'Adapter');
-		$map->setAttribute('Name', $key);
-		$default_map->appendChild($map);
+		
+	$acs = $xpath->query('md:SPSSODescriptor/md:AttributeConsumingService', $desc);
+	if ($acs->length != 0) {
+		foreach ($xpath->query('md:RequestedAttribute', $acs->item(0)) as $attr) {
+			$map = $doc->createElement('urn:AttributeMap');
+			$map->setAttribute('Value', array_key_exists($attr->getAttribute('Name'), $cfg['adapter']['idp']['attribute-map']) ? $cfg['adapter']['idp']['attribute-map'][$attr->getAttribute('Name')] : 'subject');
+			$map->setAttribute('Type', 'Adapter');
+			$map->setAttribute('Name', $attr->getAttribute('Name'));
+			$default_map->appendChild($map);
+		}		
 	}
+
+	$map = $doc->createElement('urn:AttributeMap');
+	$map->setAttribute('Value', array_key_exists('SAML_SUBJECT', $cfg['adapter']['idp']['attribute-map']) ? $cfg['adapter']['idp']['attribute-map']['SAML_SUBJECT'] : 'subject');
+	$map->setAttribute('Type', 'Adapter');
+	$map->setAttribute('Name', 'SAML_SUBJECT');
+	$default_map->appendChild($map);
+
 	$mapping->appendChild($default_map);
 	
 	// needed for SAML 1.1 purposes
