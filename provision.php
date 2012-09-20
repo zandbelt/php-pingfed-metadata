@@ -164,8 +164,10 @@ $config = array(
 			// attribute map: adapter-name => assertion-name
 			'attribute-map' => array(
 				'subject' => 'SAML_SUBJECT',
-				'cn' => 'SAML_SUBJECT',
-				'sn' => 'SAML_SUBJECT',
+				'email address' => 'SAML_SUBJECT',
+				'member status' => 'SAML_SUBJECT',
+				'userid' => 'SAML_SUBJECT',
+				'name' => 'SAML_SUBJECT',
 			),
 		),
 	),
