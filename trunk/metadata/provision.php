@@ -196,6 +196,7 @@ $config = array(
 	# listing an entry in "include" means that all entities not listed here will be ignored
 	'include' => array(
 #		'https://sh2testsp1.iay.org.uk/shibboleth',
+#		'https://carmenwiki.osu.edu/shibboleth',
 	),
 	
 	# don't touch: for internal state keeping purposes to generate unique friendly names
@@ -247,7 +248,8 @@ function xml_sig_verify($doc, $cert) {
  */
 function metadata_retrieve_and_verify($url, $cert = NULL) {
 	$metadata = file_get_contents($url);
-	$doc = DOMDocument::loadXML($metadata);
+	$doc = new DOMDocument(true);
+	$doc->loadXML($metadata);
 	$result = xml_sig_verify($doc, $cert);
 	if ($result !== true) {
 		echo " # ERROR: signature verification failed!\n";
@@ -303,6 +305,17 @@ function pf_connection_save(&$cfg, $doc, $desc, $entityid) {
 		print_r($cfg);
 		exit;
 	}
+}
+
+/**
+ * Get connection info from PingFederate.
+ *
+ * @param array $cfg the global configuration settings
+ * @param string $entityid the Entity identifier of the connection
+ */
+function pf_connection_get(&$cfg, $entityid, $type = 'SP') {
+	$body = '<getConnection><param0>' . htmlspecialchars($entityid) . '</param0><param1>' . $type . '</param1></getConnection>';	
+	return soap_call_basic_auth($cfg['connection-management-url'], '', $body, $cfg['user'], $cfg['password']);
 }
 
 /**
@@ -520,7 +533,7 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$org = $xpath->query('md:Organization/md:OrganizationName', $desc);
 	$name .= ($org->length > 0) ? $org->item(0)->textContent : $entityid;
 
-	pf_connection_contact_mailto_fix($cfg, $doc, $xpath, $desc);
+	//pf_connection_contact_mailto_fix($cfg, $doc, $xpath, $desc);
 	
 	$desc->setAttributeNS('urn:sourceid.org:saml2:metadata-extension:v2', 'urn:isActive', 'true');
 
@@ -534,10 +547,28 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$extensions = $doc->createElement('Extensions');
 	$desc->insertBefore($extensions, $desc->firstChild);
 	$entity_ext = $doc->createElement('urn:EntityExtension');
+
+/*
+	$encryption = $doc->createElement('urn:Encryption');
+	$encryption_policy = $doc->createElement('urn:EncryptionPolicy');
+	$encryption_policy->setAttribute('EncryptAssertion', 'true');
+	$encryption_policy->setAttribute('KeyTransportAlgorithm', 'http://www.w3.org/2001/04/xmlenc#rsa-1_5');
+	$encryption_policy->setAttribute('EncryptionAlgorithm', 'http://www.w3.org/2001/04/xmlenc#aes128-cbc');
+	$encryption->appendChild($encryption_policy);
+	$entity_ext->appendChild($encryption);
+*/
+
 	$dependencies = $doc->createElement('urn:Dependencies');
 	$signing_key = $doc->createElement('urn:SigningKeyPairReference');
 	$signing_key->setAttribute('MD5Fingerprint', $cfg['signing-key-fingerprint']);
 	$dependencies->appendChild($signing_key);
+
+/*
+	$encryption_cert = $doc->createElement('urn:EncryptionCert');
+	$base64_cert = $doc->createElement('urn:Base64EncodedCert', 'MIIDGzCCAgOgAwIBAgIJANI+yGM0M1N2MA0GCSqGSIb3DQEBBQUAMCcxJTAjBgNVBAMTHGx0Y2F3aWtpMDEuaXQub2hpby1zdGF0ZS5lZHUwHhcNMTAwNzA3MjI0MzA1WhcNMjAwNzA0MjI0MzA1WjAnMSUwIwYDVQQDExxsdGNhd2lraTAxLml0Lm9oaW8tc3RhdGUuZWR1MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5fsEv25Mr9wfa48qfjn8m40yB/lwimJ8dSnYw2erd/tfB+sPESw42Is5Lv2B3pI3mj9a0PT0Gf1VgUoQW0RCT6L4VOW50WsPFv/RKPfT/AIRl00dTCqb440PgotGbrK9ivZqlvkzlSGUKuFcg2gLj+CJlbMcwEneSwn0FE1xKEGpMDUk91lZH1XxmnIDDOQn1G5qul4qAbXITMpLi2MlsHAEXxnLrthFFas6zDrviTwHcqGXq9zJJkPHDcbu1qg6AUT7bRJrqszxxktSV6mFclkgLPpcVkigMR8RNVMQkWaaWSnfBkFy2iAe3xw3DNp7obtzgItYi9N8U6K5qorSkQIDAQABo0owSDAnBgNVHREEIDAeghxsdGNhd2lraTAxLml0Lm9oaW8tc3RhdGUuZWR1MB0GA1UdDgQWBBR32XnCliG78DdyTtZhyIQSHChtyjANBgkqhkiG9w0BAQUFAAOCAQEAVEweCxPElHGmam4Iv2QeJsGE7m4de7axp3epAJb7uVbNZ2P1S/s4GZQhmGsUoGoxwqca3wyQ+C1ZkpQJdyFl5s1tFc26D+Z0KTDo174GzO9iI9SeQ4YSp3FNhZqxn4xH3DULzzHwoVSwFr5irLPAVtrqK8H/rzBREhqOse2VSJ/1PkI+p7lUiElIzMiObLGjumF2fDOPkXOSMNyC4c5oCCJtcrip/BaLo6bqdqn3DKP8onMw/lHZQolyVsupuhGsSX13WVJ0uyGvuA7hiHnGEkpDmskUd3TsriyQAt47RZzYtTupO/NdWvz8SvXU1qIOk9CTQ0D2b2OOftfUW+FuAQ==');
+	$encryption_cert->appendChild($base64_cert);
+	$dependencies->appendChild($encryption_cert);
+*/
 	
 	// needed for Artifact SOAP backchannel profile (incoming, ao. for SAML 1.1), and for Attribute Query (outgoing)
 	$soap_auth = $doc->createElement('urn:SoapAuth');
@@ -651,13 +682,17 @@ function usage($argv) {
 	echo "Usage: $argv[0] [create|delete]\n";
 }
 
-if (count($argv) == 2) {
+if (count($argv) > 1) {
 	switch ($argv[1]) {
 		case 'create':
 		case 'delete':
 			$doc = metadata_retrieve_and_verify($config['metadata-url'], (array_key_exists('metadata-certificate', $config) and $config['metadata-certificate'] !== NULL) ? file_get_contents($config['metadata-certificate']) : NULL);
 			process_metadata($config, $doc, 'pf_connection_' . $argv[1]);
 			break;
+		case 'get':
+			$result = pf_connection_get($config, $argv[2]);
+			print html_entity_decode($result);
+		 	break;
 		default:
 			usage($argv);
 			break;
