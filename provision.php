@@ -338,7 +338,7 @@ function pf_connection_create_extensions_role(&$cfg, $doc, $xpath, $desc, $entit
 		$desc->removeChild($extensions->item(0));
 	}
 	
-	$extensions = $doc->createElement('Extensions');
+	$extensions = $doc->createElement('md:Extensions');
 	$desc->insertBefore($extensions, $desc->firstChild);
 	$role_ext = $doc->createElement('urn:RoleExtension');
 	
@@ -546,7 +546,7 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 		$desc->removeChild($extensions->item(0));
 	}
 	
-	$extensions = $doc->createElement('Extensions');
+	$extensions = $doc->createElement('md:Extensions');
 	$desc->insertBefore($extensions, $desc->firstChild);
 	$entity_ext = $doc->createElement('urn:EntityExtension');
 
@@ -688,13 +688,23 @@ if (count($argv) > 1) {
 	switch ($argv[1]) {
 		case 'create':
 		case 'delete':
-			$doc = metadata_retrieve_and_verify($config['metadata-url'], (array_key_exists('metadata-certificate', $config) and $config['metadata-certificate'] !== NULL) ? file_get_contents($config['metadata-certificate']) : NULL);
+			$doc = metadata_retrieve_and_verify(count($argv) > 2 ? $argv[2] : $config['metadata-url'], (array_key_exists('metadata-certificate', $config) and $config['metadata-certificate'] !== NULL) ? file_get_contents($config['metadata-certificate']) : NULL);
 			process_metadata($config, $doc, 'pf_connection_' . $argv[1]);
 			break;
 		case 'get':
 			$result = pf_connection_get($config, $argv[2]);
 			print html_entity_decode($result);
 		 	break;
+		case 'save':
+			$metadata = file_get_contents($argv[2]);
+			$doc = new DOMDocument(true);
+			$doc->loadXML($metadata);
+			$xpath = new DOMXpath($doc);
+			$xpath->registerNamespace('md', 'urn:oasis:names:tc:SAML:2.0:metadata');
+			$desc = $xpath->query('/md:EntityDescriptor', $doc->documentElement);
+			$entityid = $desc->item(0)->getAttribute('entityID');
+			$result = pf_connection_save($config, $doc, $desc->item(0), $entityid);
+			break;
 		default:
 			usage($argv);
 			break;
