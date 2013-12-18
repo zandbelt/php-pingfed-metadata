@@ -1,6 +1,6 @@
 <?php
 /***************************************************************************
- * Copyright (C) 2011-2012 Ping Identity Corporation
+ * Copyright (C) 2011-2014 Ping Identity Corporation
  * All rights reserved.
  *
  * The contents of this file are the property of Ping Identity Corporation.
@@ -105,6 +105,9 @@
  *  - Import of a large number of entities may take a considerable time
  *    (eg. 8.5 mins for 886 entities on a MacBook Air 1.7 GHz Intel Core i5).
  *
+ *  - enable the Connection Management service (username/password to be configured in this
+ *    file, and enable both the SAML 2.0 and 1.1 roles for IDP/SP.
+ *
  *  - Be sure to switch off auto-connection-validation in the System Options of the Server
  *    Settings of the PingFederate management console to avoid an unusably slow console
  *    when dealing with a large number of connections.
@@ -120,12 +123,12 @@ $config = array(
 	###################################################
 
 	// remote metadata url
-	'metadata-url' => 'http://wayf.incommonfederation.org/InCommon/InCommon-metadata.xml',
+	'metadata-url' => 'http://md.incommon.org/InCommon/InCommon-metadata.xml',
 	// alternatively download it to disk first, then refer to it as a file on disk (better performance in testing...)
 #	'metadata-url' => 'InCommon-metadata.xml',
 
 	// path to certificate with he public key to verify the metadata that is downloaded
-#	'metadata-certificate' => 'InCommon-metadata.pem',
+#	'metadata-certificate' => 'inc-md-cert.pem',
 
 #	'metadata-url' => 'http://metadata.ukfederation.org.uk/ukfederation-metadata.xml',
 #	'metadata-url' => 'ukfederation-metadata.xml',
@@ -197,7 +200,7 @@ $config = array(
 	),
 	# listing an entry in "include" means that all entities not listed here will be ignored
 	'include' => array(
-#		'https://sh2testsp1.iay.org.uk/shibboleth',
+#		'urn:mace:eduserv.org.uk:athens:federation:beta',
 #		'https://carmenwiki.osu.edu/shibboleth',
 	),
 	
