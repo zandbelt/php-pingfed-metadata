@@ -30,7 +30,7 @@
  **************************************************************************/
 /* 
  * This script imports SAML 2.0/SAML 1.1 connections defined in SAML 2.0
- * metadata documents into PingFederate by augmenting the metadata document
+ * metadata documents into PingFederate >=7.1.0-R3 by augmenting the metadata document
  * with PingFederate connection specific configuration settings and upload
  * it using PingFederate's Connection Manager webservice API.
  * 
@@ -80,7 +80,7 @@
  * Shortcuts:
  * 
  * - on all SOAP backchannel calls, both incoming and outgoing, basic authentication
- *   is configured with a default username (=entityid) and password ("bla") is
+ *   is configured with a default username [=urlencode(<role>:<entityid>)] and password ("Changeme1") is
  *   configured; this is necessarily a placeholder only because these credentials
  *   info needs to be negiotated with peer entities out-of-band; one could extend
  *   this script with the negotiated per-entity credentials for this purpose
@@ -187,7 +187,7 @@ $config = array(
 
 	// needed for Artifact SOAP backchannel profile (incoming, ao. for SAML 1.1), and for Attribute Query (outgoing)
 	// TODO: one does not normally use the same password for all connections, for sure not outgoing and incoming, but this is to be determined out-of-band on a per-partner basis!
-	'basic-auth-password' => 'OBF:AES:7Gmf2adjzQCXFhudjtI2dg==:d0d251479d14391095b77981546ea06e5d0b4ba4',
+	'basic-auth-password' => 'eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2Iiwia2lkIjoiM2ZmNE9NRTBSMiIsInZlcnNpb24iOiI3LjEuMzAwLjUifQ..y64VqbQhweRjOsXcXmvOmg.UDqKqY0p3C7LuuT0WXn0fw.tLbC3aMwcA7h_5z7aOVKyg',
 
 	# choose SAML 2.0 over SAML 1.1 (and Shibboleth 1.0) if both listed in protocolEnumeration
 	# by default PF will take SAML 1.1 (or perhaps just the first in the enumeration list)
@@ -318,7 +318,7 @@ function pf_connection_save(&$cfg, $doc, $desc, $entityid) {
  * @param array $cfg the global configuration settings
  * @param string $entityid the Entity identifier of the connection
  */
-function pf_connection_get(&$cfg, $entityid, $type = 'SP') {
+function pf_connection_get(&$cfg, $entityid, $type) {
 	$body = '<getConnection><param0>' . htmlspecialchars($entityid) . '</param0><param1>' . $type . '</param1></getConnection>';	
 	return soap_call_basic_auth($cfg['connection-management-url'], '', $body, $cfg['user'], $cfg['password']);
 }
@@ -578,27 +578,38 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	// needed for Artifact SOAP backchannel profile (incoming, ao. for SAML 1.1), and for Attribute Query (outgoing)
 	$soap_auth = $doc->createElement('urn:SoapAuth');
 	$soap_auth->setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:soap', 'http://www.sourceid.org/2004/04/soapauth');
+	
 	$incoming = $doc->createElement('soap:Incoming');
-	$outgoing = $doc->createElement('soap:Outgoing');
+	$none_incoming = $doc->createElement('soap:None');
+	$none_incoming->setAttribute('providerID','this');	
+	$incoming->appendChild($none_incoming);
+	// if SAML 1.1
 	$basic_incoming = $doc->createElement('soap:Basic');
+	$basic_incoming->setAttribute('providerID','this');	
 	$basic_incoming->setAttribute('password', $cfg['basic-auth-password']);
-	$basic_incoming->setAttribute('providerID','this');
 	$incoming->appendChild($basic_incoming);
 	$soap_auth->appendChild($incoming);
+
+	$outgoing = $doc->createElement('soap:Outgoing');
+	$none_outgoing = $doc->createElement('soap:None');
+	$none_outgoing->setAttribute('providerID','this');
+	$outgoing->appendChild($none_outgoing);
+	// if SAML 1.1
 	$basic_outgoing = $doc->createElement('soap:Basic');
-	$basic_outgoing->setAttribute('password', $cfg['basic-auth-password']);
 	$basic_outgoing->setAttribute('providerID','this');
+	$basic_outgoing->setAttribute('password', $cfg['basic-auth-password']);	
 	$outgoing->appendChild($basic_outgoing);
 	$soap_auth->appendChild($outgoing);
 	$dependencies->appendChild($soap_auth);
-	
+
 	$entity_ext->appendChild($dependencies);
 	$extensions->appendChild($entity_ext);
 	
 	$idp_desc = $xpath->query('md:IDPSSODescriptor', $desc);
 	if ($idp_desc->length > 0) {
-		$basic_incoming->setAttribute('username', 'idp:' . $entityid);
-		$basic_outgoing->setAttribute('username', 'idp:' . $entityid);
+		$username = urlencode('idp:' . $entityid);
+		$basic_incoming->setAttribute('username', $username);
+		$basic_outgoing->setAttribute('username', $username);
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'idp'));
 		$idp_desc = $idp_desc->item(0);
 		$idp_desc = pf_connection_prefer_saml20($cfg, $idp_desc);
@@ -609,8 +620,9 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	
 	$sp_desc = $xpath->query('md:SPSSODescriptor', $desc);
 	if ($sp_desc->length > 0) {
-		$basic_incoming->setAttribute('username', 'sp:' . $entityid);
-		$basic_outgoing->setAttribute('username', 'sp:' . $entityid);
+		$username = urlencode('sp:' . $entityid);
+		$basic_incoming->setAttribute('username', $username);
+		$basic_outgoing->setAttribute('username', $username);
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'sp'));
 		$sp_desc = $sp_desc->item(0);
 		$sp_desc = pf_connection_prefer_saml20($cfg, $sp_desc);
@@ -663,7 +675,6 @@ function process_metadata(&$cfg, $doc, $function) {
 	$xpath = new DOMXpath($doc);
 	$xpath->registerNamespace('md', 'urn:oasis:names:tc:SAML:2.0:metadata');
 	$descriptor = $xpath->query('/md:EntitiesDescriptor', $doc->documentElement);
-	$ids = array();
 	if ($descriptor->length > 0) {
 			// process multiple EntityDescriptor's contained in an EntitiesDescriptor
 			foreach ($xpath->query('md:EntityDescriptor', $descriptor->item(0)) as $desc) {
@@ -697,7 +708,7 @@ if (count($argv) > 1) {
 			process_metadata($config, $doc, 'pf_connection_' . $argv[1]);
 			break;
 		case 'get':
-			$result = pf_connection_get($config, $argv[2]);
+			$result = pf_connection_get($config, $argv[2], count($argv) > 3 ? $argv[3] : "SP");
 			print html_entity_decode($result);
 		 	break;
 		case 'save':
