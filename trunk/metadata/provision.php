@@ -30,7 +30,7 @@
  **************************************************************************/
 /* 
  * This script imports SAML 2.0/SAML 1.1 connections defined in SAML 2.0
- * metadata documents into PingFederate >=7.1.0-R3 by augmenting the metadata document
+ * metadata documents into PingFederate >=7.1.3 by augmenting the metadata document
  * with PingFederate connection specific configuration settings and upload
  * it using PingFederate's Connection Manager webservice API.
  * 
