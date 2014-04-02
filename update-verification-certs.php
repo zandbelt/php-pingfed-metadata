@@ -35,8 +35,8 @@
 * 
 * It subsequently updates the primary and/or secondary verification certificates
 * when found out-of-sync and as such can be used as a cronjob to keep signing keys
-* in sync with centrally distributed federation metadata that is signed by a
-* multi-party federation operator.
+* in sync with centrally hosted federation metadata that is (signed and) distributed
+* by a multi-party federation operator.
 * 
 * Documentation for the PingFederate Admin REST API is at:
 * https://localhost:9999/pf-admin-api/api-docs/
@@ -45,18 +45,23 @@
 *
 **************************************************************************/
 
-// TODO: split out metadata_retrieve_and_verify and http_exec in their own utils/common.php file
-// TODO: report "cert expired" as issue: should be able to disable that check
+// TODO: split out metadata_retrieve_and_verify and http_exec in their own utils/common.php
+//       file, shared with provision.php (which really should be named import-entities.php 
 
 /*
  * configuration parameters
  */
 $cfg = array(
+	/* the URL (may be file://) to the federation metadata that contains the EntitiesDescriptor */
 #	'remote-metadata-url' => 'http://md.incommon.org/InCommon/InCommon-metadata.xml',
 	'remote-metadata-url' => 'file://InCommon-metadata.xml',
+
 	'pingfed-admin-api' => array(
+		/* the URL to the PingFederate Admin REST API */
 		'url' => 'https://localhost:9999/pf-admin-api/rest',
+		/* the username to use against the Admin API */
 		'admin_username' => 'administrator',
+		/* the password to use against the Admin API */
 		'admin_password' => '2Federate',
 	),
 );
@@ -67,10 +72,9 @@ $cfg = array(
 function http_exec($url, $method = NULL, $data = NULL, $username = NULL, $password = NULL, $verify_peer = 1, $verify_host = 1) {
 	$ch = curl_init();
 
-	//curl_setopt($ch, CURLOPT_VERBOSE, 1);
+	#curl_setopt($ch, CURLOPT_VERBOSE, 1);
 	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, $verify_peer);
 	curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $verify_host);
-
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
 
 	if ( ($username != NULL) and ($password != NULL) ) {
@@ -81,7 +85,6 @@ function http_exec($url, $method = NULL, $data = NULL, $username = NULL, $passwo
 	curl_setopt($ch, CURLOPT_URL, $url);
 
 	$headers = array('X-XSRF-Header: dummy');
-
 	if ($method == "POST") {
 		curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
 	} else if ($method == "PUT") {
@@ -89,14 +92,12 @@ function http_exec($url, $method = NULL, $data = NULL, $username = NULL, $passwo
 		curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
 		curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
 	}
-
 	curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
 	$result = curl_exec($ch);
 	print_r(curl_error($ch));
-
 	curl_close($ch);
-
+	
 	return $result;
 }
 
@@ -140,7 +141,7 @@ function keydescriptor_certifcate_get($xpath, $key_desc) {
 /*
  * Create an X.509 certificate element in decoded PF JSON/REST-style formatting.
  */
-function certificate_create($xml, $primary) {
+function json_certificate_create($xml, $primary) {
 	$cert = new stdClass();
 	$cert->x509File = new stdClass();
 	$cert->x509File->fileData = $xml;
@@ -152,7 +153,7 @@ function certificate_create($xml, $primary) {
 /*
  * Retrieve XML metadata from a URL and parse out the EntitiesDescriptor element.
  */
-function metadata_xml_retrieve_entities_descriptor($metadata_url) {
+function xml_retrieve_entities_descriptor($metadata_url) {
 	$metadata = http_exec($metadata_url, "GET", NULL, NULL, NULL, 0, 0, 0);
 	$doc = new DOMDocument(true);
 	$doc->loadXML($metadata);
@@ -163,12 +164,12 @@ function metadata_xml_retrieve_entities_descriptor($metadata_url) {
 }
 
 /*
- * Retrieve a list of JSON-formatted connection information entries from the PingFederate Admin REST API.
+ * Retrieve a list of JSON-formatted IDP connection information entries from the PingFederate Admin REST API.
  */
-function metadata_pingfed_retrieve($cfg) {
+function pingfed_idps_retrieve($cfg) {
 	$ht = array();
 	$url = $cfg['pingfed-admin-api']['url'] . '/sp/idpConnections';
-	$json = http_exec($url, "GET", NULL, $cfg['pingfed-admin-api']['admin_username'], $cfg['pingfed-admin-api']['admin_password'], 0, 0, 0);
+	$json = http_exec($url, "GET", NULL, $cfg['pingfed-admin-api']['admin_username'], $cfg['pingfed-admin-api']['admin_password'], 0, 0);
 	if ($json) {
 		$idps = json_decode($json);
 		if ($idps) {
@@ -181,19 +182,20 @@ function metadata_pingfed_retrieve($cfg) {
 /*
  * Update/write/put/push the connection information for a connection over the PingFederate Admin REST API.
  */
-function metadata_pingfed_update($cfg, $json) {
+function pingfed_idp_update($cfg, $json) {
 	$url = $cfg['pingfed-admin-api']['url'] . '/sp/idpConnections/' . $json->id;
-	$result = http_exec($url, "PUT", json_encode($json), $cfg['pingfed-admin-api']['admin_username'], $cfg['pingfed-admin-api']['admin_password'], 0, 0, 0);
+	$result = http_exec($url, "PUT", json_encode($json), $cfg['pingfed-admin-api']['admin_username'], $cfg['pingfed-admin-api']['admin_password'], 0, 0);
 	$json = json_decode($result);
 	if ($json->resultId == "validation_error") {
 		print " # error: " . $json->validationErrors[0]->message . "\n";
+		//exit;
 	}
 }
 
 /*
- * Return the indexes of respectively the primary and secondary certificates in the list of configured certificates for a connection.
+ * Return the indexes of the primary and secondary certificates in the list of configured certificates for a connection.
  */
-function metadata_get_indexes($json) {
+function json_get_indexes($json) {
 	$primary_index = -1;
 	$secondary_index = -1;	
 	for ($i = 0; $i < count($json->credentials->certs); $i++) {
@@ -221,9 +223,9 @@ function metadata_get_matching_index($cert_xml, $json) {
 }
 
 /*
- * Return the firstly and secondly listed XML verification certificates in KeyDescriptors in the IDPSSODescriptor.
+ * Return the first and second signing certificates in the list of KeyDescriptors in the IDPSSODescriptor.
  */
-function metadata_get_xml_certs($xpath, $idp_desc) {
+function metadata_get_signing_certs($xpath, $idp_desc) {
 	$primary_xml = NULL;
 	$secondary_xml = NULL;
 	foreach ($xpath->query('md:KeyDescriptor', $idp_desc->item(0)) as $key_desc) {
@@ -247,49 +249,50 @@ function metadata_needs_update($primary_index, $secondary_index, $primary_xml, $
 
 	$update = false;
 	
-	/* do we have a primary cert configured currently? */
+	/* do we currently have a primary cert configured currently for this connection? */
 	if ($primary_index != -1) {
 		/* yes, now see if the primary cert still matches */
 		if (sha1_thumbprint($primary_xml) != sha1_thumbprint($json->credentials->certs[$primary_index]->x509File->fileData)) {
-			/* currently configured primary cert out-of-sync with remotely obtained one */
+			/* the currently configured primary cert is out-of-sync with the one that we obtained remotely */
 			print " updating primary certificate for entity: " . $json->entityId . "\n";
 			$json->credentials->certs[$primary_index]->x509File->fileData = $primary_xml;
 			$update = true;
 		}
 	} else {
-		/* no primary found, this should not happen */
+		/* no primary verification certificate found, this should not happen */
 		print " adding primary certificate for entity: " . $json->entityId . "\n";
-		$json->credentials->certs[] = certificate_create($primary_xml, true);
+		$json->credentials->certs[] = json_certificate_create($primary_xml, true);
 		$update = true;
 	}
 	
-	/* see if we have obtained a secondary certificate at all */
+	/* see if we have obtained a secondary certificate at all from the metadata feed */
 	if ($secondary_xml != null) {
-		/* do we have a secondary cert configured currently? */
+		/* do we currently have a secondary cert configured? */
 		if ($secondary_index != -1) {
 			/* yes, now see if the secondary cert still matches */
 			if (sha1_thumbprint($secondary_xml) != sha1_thumbprint($json->credentials->certs[$secondary_index]->x509File->fileData)) {
-				/* currently configured secondary cert out-of-sync with remotely obtained one */
+				/* currently configured secondary cert is out-of-sync with the one that we obtained remotely */
 				print " updating secondary certificate for entity: " . $json->entityId . "\n";
 				$json->credentials->certs[$secondary_index]->x509File->fileData = $secondary_xml;
 				$update = true;
 			}
 		} else {
-			/* no secondary configured currently, but the cert may be in the list of configured (and unused certs), check that */
+			/* no secondary configured currently, but the cert may be in the list of configured (but unused) certs, check that */
 			$secondary_index = metadata_get_matching_index($secondary_xml, $json);
 			if ($secondary_index != -1) {
-				/* got the certificate imported already, just nog configured as secondary yet: do that now */
+				/* got the certificate imported already, it was just not configured as secondary yet: do that now */
 				print " promoting existing certificate to secondary certificate for entity: " . $json->entityId . "\n";
 				$json->credentials->certs[$secondary_index]->secondaryVerificationCert = true;
 			} else {
-				/* no secondary cert currently and it is not in the list of "other" (unused) certificates either; add it as a secondary cert then */
+				/* our cert is no secondary cert currently and it is not in the list of other (unused) certificates either;
+				 * add it as a secondary cert then */
 				print " adding secondary certificate for entity: " . $json->entityId . "\n";
-				$json->credentials->certs[] = certificate_create($secondary_xml, false);				
+				$json->credentials->certs[] = json_certificate_create($secondary_xml, false);				
 			}
 			$update = true;
 		}
 	} else {
-		/* no secondary certificate in remote metadata; if we currently have one set, unset it */
+		/* no secondary certificate in remote metadata; if we currently have one set as a secondary, unset it */
 		if ($secondary_index != -1) {
 			print " removing existing secondary certificate for entity: " . $json->entityId . "\n";
 			$json->credentials->certs[$secondary_index]->secondaryVerificationCert = false;
@@ -304,12 +307,17 @@ function metadata_needs_update($primary_index, $secondary_index, $primary_xml, $
 /*
  * Process an IDPSSODescriptor
  */
-function metadata_process_existing_idp_sso_descriptor($cfg, $json, $xpath, $idp_desc) {
-	list($primary_index, $secondary_index) = metadata_get_indexes($json);
-	list($primary_xml, $secondary_xml) = metadata_get_xml_certs($xpath, $idp_desc);
+function xml_process_existing_idp_sso_descriptor($cfg, $json, $xpath, $idp_desc) {
+	/* get the indexes of the primary and secondary verification certs in the list of certs for this IDP */
+	list($primary_index, $secondary_index) = json_get_indexes($json);
+	/* get the first and second signing cert from the remote metadata */
+	list($primary_xml, $secondary_xml) = metadata_get_signing_certs($xpath, $idp_desc);
+	/* see if the certs match; if not, we need to update them */
 	if (metadata_needs_update($primary_index, $secondary_index, $primary_xml, $secondary_xml, $json)) {
+		/* TODO: shouldn't need to do this, right? report issue */
 		unset($json->credentials->signingSettings);
-		metadata_pingfed_update($cfg, $json);
+		/* perform a cert update because they're out of sync */
+		pingfed_idp_update($cfg, $json);
 	} else {
 		print " skipping entity that needs no update: " . $json->entityId . "\n";
 	}
@@ -318,31 +326,33 @@ function metadata_process_existing_idp_sso_descriptor($cfg, $json, $xpath, $idp_
 /*
  * process an EntitiesDescriptor
  */
-function metadata_process_entities_descriptor($cfg, $ht, $xpath, $descriptor) {
+function xml_process_entities_descriptor($cfg, $ht, $xpath, $descriptor) {
+	/* loop over the EntityDescriptor's embedded in this EntitiesDescriptor */
 	foreach ($xpath->query('md:EntityDescriptor', $descriptor->item(0)) as $desc) {
 		$entityid = $desc->getAttribute('entityID');
+		/* check if this EntityDescriptor is an IDP */
 		$idp_desc = $xpath->query('md:IDPSSODescriptor', $desc);
 		if ($idp_desc->length > 0) {
-			if (array_key_exists($entityid, $ht)) {
-				metadata_process_existing_idp_sso_descriptor($cfg, $ht[$entityid], $xpath, $idp_desc);
-			}
+			/* check if this entity is currently configured as an IDP in PingFederate (otherwise ignore it) */
+			if (!array_key_exists($entityid, $ht)) continue;
+			xml_process_existing_idp_sso_descriptor($cfg, $ht[$entityid], $xpath, $idp_desc);
 		}
 	}
 }
 
 /*
- * Retrieve the JSON formatted connections through the PingFederate Admin REST API.
- */
-$ht = metadata_pingfed_retrieve($cfg);
-
-/*
  * Retrieve the EntitiesDescriptor from the remote location (may be URL to a file on disk).
  */
-list($xpath, $descriptor) = metadata_xml_retrieve_entities_descriptor($cfg['remote-metadata-url']);
+list($xpath, $descriptor) = xml_retrieve_entities_descriptor($cfg['remote-metadata-url']);
+
+/*
+ * Retrieve the JSON formatted IDP connections through the PingFederate Admin REST API.
+*/
+$ht = pingfed_idps_retrieve($cfg);
 
 /*
  * Process/compare the connection information.
  */
-metadata_process_entities_descriptor($cfg, $ht, $xpath, $descriptor);
+xml_process_entities_descriptor($cfg, $ht, $xpath, $descriptor);
 
 ?>
