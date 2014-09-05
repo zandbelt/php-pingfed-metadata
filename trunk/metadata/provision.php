@@ -66,9 +66,6 @@
  *   
  * Known Issues:
  * 
- *  - signature verification on a very large set of metadata may take very long (many minutes).
- *    This is the case for the InCommon and UK Access Federation metadata.
- *    
  *  - some federations (in fact maybe only UK Access Federation by now) may still contain IDPs
  *    that base their signing key material on the now deprecated method of named keys that refer
  *    to keys issued by an root CA whose certificate is embedded in the metadata outside of
@@ -87,7 +84,6 @@
  *
  * TBD:
  * 
- * - speed up canonicalization
  * - support for DataSources
  * - support for nested EntitiesDescriptor's (?)
  * - the script is self-contained now but it may be better to rely on libraries for:
@@ -127,8 +123,8 @@ $config = array(
 	// alternatively download it to disk first, then refer to it as a file on disk (better performance in testing...)
 #	'metadata-url' => 'InCommon-metadata.xml',
 
-	// path to certificate with he public key to verify the metadata that is downloaded
-#	'metadata-certificate' => 'inc-md-cert.pem',
+	// path to certificate with the public key to verify the metadata that is downloaded
+	'metadata-certificate' => 'inc-md-cert.pem',
 
 #	'metadata-url' => 'http://metadata.ukfederation.org.uk/ukfederation-metadata.xml',
 #	'metadata-url' => 'ukfederation-metadata.xml',
@@ -227,14 +223,20 @@ function xml_sig_verify($doc, $cert) {
 		$signature = $signature->item(0);
 		$signatureValue = $xp->query(".//ds:SignatureValue", $signature)->item(0)->textContent;
 		$digestValue = $xp->query(".//ds:SignedInfo/ds:Reference/ds:DigestValue", $signature)->item(0)->textContent;
+		$digestAlgorithm = $xp->query(".//ds:SignedInfo/ds:Reference/ds:DigestMethod", $signature)->item(0)->getAttribute('Algorithm');
+		$signatureAlgorithm = $xp->query(".//ds:SignedInfo/ds:SignatureMethod", $signature)->item(0)->getAttribute('Algorithm');
+		$sigalgo = explode('#', $signatureAlgorithm);
+		$sigalgo = explode('-', $sigalgo[1]);
+		$sigalgo = $sigalgo[1];
+		$digestalgo = explode('#', $digestAlgorithm);
+		$digestalgo = $digestalgo[1];
 		$signedInfo = $xp->query(".//ds:SignedInfo", $signature)->item(0)->C14N(true, false);
 		$signature->parentNode->removeChild($signature);
 		if ($cert !== NULL) {
-			echo " # INFO: canonicalizing metadata; this may take very long  if the document is large (many minutes)...\n";
-			$canonicalXml = $doc->documentElement->C14N(true, false);
-			echo " # INFO: canonicalizing metadata finished OK!\n";
-			$digestMatches = (base64_encode(sha1($canonicalXml, true)) == $digestValue);
-			$result = $digestMatches ? (openssl_verify($signedInfo, base64_decode($signatureValue), $cert) === 1) : false;
+			$canonicalXml = $doc->C14N(true, false);
+			$hash = base64_encode(hash($digestalgo, $canonicalXml, true));
+			$digestMatches = ($hash == $digestValue);
+			$result = $digestMatches ? (openssl_verify($signedInfo, base64_decode($signatureValue), $cert, $sigalgo) === 1) : false;
 		} else {
 			echo " # WARN: signature not verified but removed.\n";
 		}
