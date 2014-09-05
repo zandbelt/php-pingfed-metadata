@@ -99,7 +99,7 @@
  *    it and would not be able to support those extensions (eg. shib scope) anyway.
  * 
  *  - Import of a large number of entities may take a considerable time
- *    (eg. 8.5 mins for 886 entities on a MacBook Air 1.7 GHz Intel Core i5).
+ *    (eg. 22 mins for 2191 entities on a MacBook Pro 2.3 GHz Intel Core i7).
  *
  *  - enable the Connection Management service (username/password to be configured in this
  *    file, and enable both the SAML 2.0 and 1.1 roles for IDP/SP.
