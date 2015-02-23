@@ -1,6 +1,6 @@
 <?php
 /***************************************************************************
- * Copyright (C) 2011-2014 Ping Identity Corporation
+ * Copyright (C) 2011-2015 Ping Identity Corporation
  * All rights reserved.
  *
  * The contents of this file are the property of Ping Identity Corporation.
