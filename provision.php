@@ -586,10 +586,12 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$none_incoming->setAttribute('providerID','this');	
 	$incoming->appendChild($none_incoming);
 	// if SAML 1.1
+	/*
 	$basic_incoming = $doc->createElement('soap:Basic');
 	$basic_incoming->setAttribute('providerID','this');	
 	$basic_incoming->setAttribute('password', $cfg['basic-auth-password']);
 	$incoming->appendChild($basic_incoming);
+	*/
 	$soap_auth->appendChild($incoming);
 
 	$outgoing = $doc->createElement('soap:Outgoing');
@@ -597,10 +599,12 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$none_outgoing->setAttribute('providerID','this');
 	$outgoing->appendChild($none_outgoing);
 	// if SAML 1.1
+	/*
 	$basic_outgoing = $doc->createElement('soap:Basic');
 	$basic_outgoing->setAttribute('providerID','this');
 	$basic_outgoing->setAttribute('password', $cfg['basic-auth-password']);	
 	$outgoing->appendChild($basic_outgoing);
+	*/
 	$soap_auth->appendChild($outgoing);
 	$dependencies->appendChild($soap_auth);
 
@@ -610,8 +614,8 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$idp_desc = $xpath->query('md:IDPSSODescriptor', $desc);
 	if ($idp_desc->length > 0) {
 		$username = urlencode('idp:' . $entityid);
-		$basic_incoming->setAttribute('username', $username);
-		$basic_outgoing->setAttribute('username', $username);
+		#$basic_incoming->setAttribute('username', $username);
+		#$basic_outgoing->setAttribute('username', $username);
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'idp'));
 		$idp_desc = $idp_desc->item(0);
 		$idp_desc = pf_connection_prefer_saml20($cfg, $idp_desc);
@@ -623,8 +627,8 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$sp_desc = $xpath->query('md:SPSSODescriptor', $desc);
 	if ($sp_desc->length > 0) {
 		$username = urlencode('sp:' . $entityid);
-		$basic_incoming->setAttribute('username', $username);
-		$basic_outgoing->setAttribute('username', $username);
+		#$basic_incoming->setAttribute('username', $username);
+		#$basic_outgoing->setAttribute('username', $username);
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'sp'));
 		$sp_desc = $sp_desc->item(0);
 		$sp_desc = pf_connection_prefer_saml20($cfg, $sp_desc);
