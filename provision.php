@@ -181,12 +181,10 @@ $config = array(
 	// for SAML 1.1; TODO: to be determined out-of-band on a per-partner basis, if needed (as opposed to using RelayState)
 	'dummy-default-targetresource' => 'http://dummy',
 
-	// needed for Artifact SOAP backchannel profile (incoming, ao. for SAML 1.1), and for Attribute Query (outgoing)
+	// needed for Artifact SOAP backchannel profile (incoming, ao. for SAML 1.1)
 	// TODO: one does not normally use the same password for all connections, but this is to be determined out-of-band on a per-partner basis!
  	// heuristics:Changeme1
 	'basic-auth-password-incoming' => 'O2U0t-HREmhVuRK2V5YGPApKKTDbQprEom4WvV2tQsg.zGgaoF4C.2',
- 	// heuristics:Changeme1
-	'basic-auth-password-outgoing' => 'eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2Iiwia2lkIjoiNnZobFBHTk9qdSIsInZlcnNpb24iOiI3LjMuMC41In0..r8FzoC8V4v_DfaFEDsRPLg.CMtvpHJKyZYLIQfBBcORKQ.Etr0HycSOaMKD4iunJmsLw',
 		
 	# choose SAML 2.0 over SAML 1.1 (and Shibboleth 1.0) if both listed in protocolEnumeration
 	# by default PF will take SAML 1.1 (or perhaps just the first in the enumeration list)
@@ -599,11 +597,6 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$none_outgoing = $doc->createElement('soap:None');
 	$none_outgoing->setAttribute('providerID','this');
 	$outgoing->appendChild($none_outgoing);
-	// if SAML 1.1
-	$basic_outgoing = $doc->createElement('soap:Basic');
-	$basic_outgoing->setAttribute('providerID','this');
-	$basic_outgoing->setAttribute('password', $cfg['basic-auth-password-outgoing']);	
-	$outgoing->appendChild($basic_outgoing);
 
 	$soap_auth->appendChild($outgoing);
 	$dependencies->appendChild($soap_auth);
@@ -615,7 +608,6 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	if ($idp_desc->length > 0) {
 		$username = urlencode('idp:' . $entityid);
 		$basic_incoming->setAttribute('username', $username);
-		$basic_outgoing->setAttribute('username', $username);
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'idp'));
 		$idp_desc = $idp_desc->item(0);
 		$idp_desc = pf_connection_prefer_saml20($cfg, $idp_desc);
@@ -628,7 +620,6 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	if ($sp_desc->length > 0) {
 		$username = urlencode('sp:' . $entityid);
 		$basic_incoming->setAttribute('username', $username);
-		$basic_outgoing->setAttribute('username', $username);
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'sp'));
 		$sp_desc = $sp_desc->item(0);
 		$sp_desc = pf_connection_prefer_saml20($cfg, $sp_desc);
