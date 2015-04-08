@@ -22,6 +22,6 @@ of the files themselves.
 
       <Call name="setAttribute">
         <Arg>org.eclipse.jetty.server.Request.maxFormContentSize</Arg>
-        <Arg>250000</Arg>
+        <Arg>300000</Arg>
       </Call>
   
