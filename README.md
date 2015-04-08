@@ -15,13 +15,13 @@ of the files themselves.
 - for a large number of connections you need to patch the Jetty configuration to avoid the error `Form too many keys` by adding the
   following two entries to `pingfederate/etc/jetty-admin.xml`
   
-    <Call name="setAttribute">
-      <Arg>org.eclipse.jetty.server.Request.maxFormKeys</Arg>
-      <Arg>10000</Arg>
-    </Call>
+      <Call name="setAttribute">
+        <Arg>org.eclipse.jetty.server.Request.maxFormKeys</Arg>
+        <Arg>10000</Arg>
+      </Call>
 
-    <Call name="setAttribute">
-      <Arg>org.eclipse.jetty.server.Request.maxFormContentSize</Arg>
-      <Arg>250000</Arg>
-    </Call>
+      <Call name="setAttribute">
+        <Arg>org.eclipse.jetty.server.Request.maxFormContentSize</Arg>
+        <Arg>250000</Arg>
+      </Call>
   
