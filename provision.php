@@ -585,7 +585,7 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$incoming = $doc->createElement('soap:Incoming');
 	$none_incoming = $doc->createElement('soap:None');
 	$none_incoming->setAttribute('providerID','this');	
-	$incoming->appendChild($none_incoming);
+	//$incoming->appendChild($none_incoming);
 	// if SAML 1.1
 	$basic_incoming = $doc->createElement('soap:Basic');
 	$basic_incoming->setAttribute('providerID','this');	
