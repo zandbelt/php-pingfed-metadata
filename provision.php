@@ -99,7 +99,7 @@
  *    it and would not be able to support those extensions (eg. shib scope) anyway.
  * 
  *  - Import of a large number of entities may take a considerable time
- *    (eg. 22 mins for 2191 entities on a MacBook Pro 2.3 GHz Intel Core i7).
+ *    (eg. 23 mins for 2810 entities on a MacBook Pro 2.3 GHz Intel Core i7).
  *
  *  - enable the Connection Management service (username/password to be configured in this
  *    file, and enable both the SAML 2.0 and 1.1 roles for IDP/SP.
@@ -141,6 +141,10 @@ $config = array(
 	// copy this from the certificate management detail screen in the "Digital Signing & XML Decryption Keys & Certificates" section
 	'signing-key-fingerprint' => '13E192DEF158C6185C41D0DDE954F0AB',
 
+	// the virtual server id that PingFederate should use towards the IDP/SP connections created using this script
+ 	// NULL means use the entity ID that is configured in the Server Settings
+	'virtual-server-id' => NULL,
+		
 	// settings for the IDP and SP adapter that gets configured for the IDP and SP connections respectively
 	'adapter' => array(
 		// IDP adapter settings
@@ -556,6 +560,16 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$desc->insertBefore($extensions, $desc->firstChild);
 	$entity_ext = $doc->createElement('urn:EntityExtension');
 
+	if ($cfg['virtual-server-id'] != NULL) {
+		$vsid = $doc->createElement('urn:VirtualIdentity');
+		$vsid->setAttribute('EntityID', $cfg['virtual-server-id']);
+		$entity_ext->appendChild($vsid);
+		
+		$dvsid = $doc->createElement('urn:DefaultVirtualIdentity');
+		$dvsid->setAttribute('EntityID', $cfg['virtual-server-id']);
+		$entity_ext->appendChild($dvsid);
+	}
+	
 /*
 	$encryption = $doc->createElement('urn:Encryption');
 	$encryption_policy = $doc->createElement('urn:EncryptionPolicy');
