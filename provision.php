@@ -99,7 +99,7 @@
  *    it and would not be able to support those extensions (eg. shib scope) anyway.
  * 
  *  - Import of a large number of entities may take a considerable time
- *    (eg. 23 mins for 2810 entities on a MacBook Pro 2.3 GHz Intel Core i7).
+ *    (eg. 23 mins for 2984 entities on a MacBook Pro 2.3 GHz Intel Core i7).
  *
  *  - enable the Connection Management service (username/password to be configured in this
  *    file, and enable both the SAML 2.0 and 1.1 roles for IDP/SP.
@@ -340,7 +340,7 @@ function pf_connection_get(&$cfg, $entityid, $type) {
  * @param string $entityid the entity identifier
  */
 function pf_connection_create_extensions_role(&$cfg, $doc, $xpath, $desc, $entityid) {
-		
+
 	$extensions = $xpath->query('md:Extensions', $desc);
 	if ($extensions->length > 0) {
 		echo " # WARN: ignoring unsupported role extensions for entity \"$entityid\":\n";
@@ -523,7 +523,74 @@ function pf_connection_contact_mailto_fix(&$cfg, $doc, $xpath, $desc) {
 function pf_connection_prefer_saml20(&$cfg, $sso_desc) {
 	$proto_enum = $sso_desc->getAttribute('protocolSupportEnumeration');
 	$protos = explode(" ", $proto_enum);
-	if ( (count($protos) > 0) and in_array($cfg['preferred-protocol'], $protos)) $sso_desc->setAttribute('protocolSupportEnumeration', $cfg['preferred-protocol']);
+	if (count($protos) > 0) {
+		if (in_array($cfg['preferred-protocol'], $protos)) {
+			$sso_desc->setAttribute('protocolSupportEnumeration', $cfg['preferred-protocol']);
+		} else {
+			$p = NULL;
+			if (in_array('urn:oasis:names:tc:SAML:2.0:protocol', $protos))  $p = "urn:oasis:names:tc:SAML:2.0:protocol";
+			if (in_array('urn:oasis:names:tc:SAML:1.1:protocol', $protos))  $p = "urn:oasis:names:tc:SAML:1.1:protocol";
+			if (in_array('urn:oasis:names:tc:SAML:1.0:protocol', $protos))  $p = "urn:oasis:names:tc:SAML:1.0:protocol";
+			if ($p != NULL) $sso_desc->setAttribute('protocolSupportEnumeration', $p);
+		}
+	}
+	return $sso_desc;
+}
+
+/**
+ * Modify the SSO descriptor so that it not contains any unsupported bindings.
+ *
+ * @param array $cfg the global configuration
+ * @param DOMElement $sso_desc and SPSSODescriptor or IDPSSODescriptor element
+ */
+function pf_connection_remove_unsupported_bindings(&$cfg, $sso_desc, $xpath) {
+
+	// omit at least (the known):
+	// urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST-SimpleSign
+	// urn:mace:shibboleth:1.0:profiles:AuthnRequest
+
+	// 'DestinationSiteFirstBinding:simple:http:302', ?
+	
+	$bindings_allowed = array(
+			'urn:oasis:names:tc:SAML:2.0:protocol' => array(
+				'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST',
+				'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect',
+				'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Artifact',
+				'urn:oasis:names:tc:SAML:2.0:bindings:SOAP',
+				'urn:oasis:names:tc:SAML:2.0:bindings:PAOS',
+				'urn:oasis:names:tc:SAML:2.0:bindings:URI',
+			),		
+			'urn:oasis:names:tc:SAML:1.1:protocol' => array(
+				'urn:oasis:names:tc:SAML:1.0:bindings:SOAP-binding',
+				'urn:oasis:names:tc:SAML:1.0:profiles:browser-post',
+				'urn:oasis:names:tc:SAML:1.0:profiles:artifact-01',
+			),
+			'urn:oasis:names:tc:SAML:1.0:protocol' => array(
+				'urn:oasis:names:tc:SAML:1.0:bindings:SOAP-binding',
+				'urn:oasis:names:tc:SAML:1.0:profiles:browser-post',
+				'urn:oasis:names:tc:SAML:1.0:profiles:artifact-01',
+			),
+	);
+	
+	$proto_enum = $sso_desc->getAttribute('protocolSupportEnumeration');
+	$protos = explode(" ", $proto_enum);
+		
+	$elem_names = array(
+			'md:SingleSignOnService',
+			'md:SingleLogoutService',
+			'md:ArtifactResolutionService',
+			'md:AssertionConsumerService'
+		);
+
+	foreach ($elem_names as $elem_name) {
+		$elems = $xpath->query($elem_name, $sso_desc);
+		foreach ($elems as $elem) {
+			$binding = $elem->getAttribute('Binding');
+			if (!in_array($binding, $bindings_allowed[$protos[0]], TRUE))
+				$sso_desc->removeChild($elem);
+		}
+	}
+		
 	return $sso_desc;
 }
 
@@ -625,11 +692,16 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'idp'));
 		$idp_desc = $idp_desc->item(0);
 		$idp_desc = pf_connection_prefer_saml20($cfg, $idp_desc);
-		pf_connection_create_idp($cfg, $doc, $xpath, $desc, $idp_desc, $entityid);
-		// NB: this relies on the fact that PF will process only the IDPSSODescriptor if it has both IDPSSODescriptor and SPSSODescriptor!
+		$idp_desc = pf_connection_remove_unsupported_bindings($cfg, $idp_desc, $xpath);
+		if ($xpath->query('md:SingleSignOnService', $idp_desc)->length != 0) {
+			// NB: this relies on the fact that PF will process only the IDPSSODescriptor if it has both IDPSSODescriptor and SPSSODescriptor!
+			pf_connection_create_idp($cfg, $doc, $xpath, $desc, $idp_desc, $entityid);
+		} else {
+			echo "\n ### SKIPPING IDP: \"" . $entityid . "\" because there are no supported bindings left!\n";
+		}
 		$desc->removeChild($idp_desc);
 	}
-	
+
 	$sp_desc = $xpath->query('md:SPSSODescriptor', $desc);
 	if ($sp_desc->length > 0) {
 		$username = urlencode('sp:' . $entityid);
@@ -637,6 +709,7 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'sp'));
 		$sp_desc = $sp_desc->item(0);
 		$sp_desc = pf_connection_prefer_saml20($cfg, $sp_desc);
+		$sp_desc = pf_connection_remove_unsupported_bindings($cfg, $sp_desc, $xpath);
 		pf_connection_create_sp($cfg, $doc, $xpath, $desc, $sp_desc, $entityid);
 	}
 	
@@ -669,7 +742,7 @@ function pf_connection_delete(&$cfg, $doc, $desc, $xpath) {
 		if ($result !== PF_DELETE_CONN_RSP_OK) {
 			echo "\n$result\n";
 			echo "\n # ERROR: deleting the connection for \"$entityid\" failed.\n";
-			exit;
+			#exit;
 		}
 	}
 	return true;
