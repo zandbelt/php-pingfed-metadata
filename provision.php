@@ -143,8 +143,11 @@ $config = array(
 
 	// the virtual server id that PingFederate should use towards the IDP/SP connections created using this script
  	// NULL means use the entity ID that is configured in the Server Settings
-	'virtual-server-id' => NULL,
-		
+	'virtual-server-id' => array(
+			'idp' => NULL,
+			'sp' => NULL
+	),
+				
 	// settings for the IDP and SP adapter that gets configured for the IDP and SP connections respectively
 	'adapter' => array(
 		// IDP adapter settings
@@ -308,14 +311,16 @@ XML;
  * @param string $entityid the Entity identifier of the connection
  */
 function pf_connection_save(&$cfg, $doc, $desc, $entityid) {
+	#echo " # DEBUG: creating/updating " . $entityid . "\n";
 	$doc->formatOutput = true;
 	$body = '<saveConnection><param0>' . htmlspecialchars($doc->saveXML($desc->cloneNode(true))) . '</param0><param1>true</param1></saveConnection>';	
 	$result = soap_call_basic_auth($cfg['connection-management-url'], '', $body, $cfg['user'], $cfg['password']);
 	if ($result !== PF_SAVE_CONN_RSP_OK) {
 		echo "\n$result\n";
 		echo "\n # ERROR: uploading the connection for \"$entityid\" failed.\n";		
-		print_r($cfg);
-		exit;
+		echo $doc->saveXML($desc);
+		#print_r($cfg);
+		#exit;
 	}
 }
 
@@ -343,8 +348,8 @@ function pf_connection_create_extensions_role(&$cfg, $doc, $xpath, $desc, $entit
 
 	$extensions = $xpath->query('md:Extensions', $desc);
 	if ($extensions->length > 0) {
-		echo " # WARN: ignoring unsupported role extensions for entity \"$entityid\":\n";
-		echo $doc->saveXML($extensions->item(0)) . "\n\n";
+		#echo " # WARN: ignoring unsupported role extensions for entity \"$entityid\":\n";
+		#echo $doc->saveXML($extensions->item(0)) . "\n\n";
 		$desc->removeChild($extensions->item(0));
 	}
 
@@ -594,6 +599,35 @@ function pf_connection_remove_unsupported_bindings(&$cfg, $sso_desc, $xpath) {
 	return $sso_desc;
 }
 
+function pf_set_virtual_server_id(&$doc, &$xpath, &$entity_ext, $virtual_server_id) {
+
+	$vsid = $xpath->query('urn:VirtualIdentity', $entity_ext);
+	if ($vsid->length > 0) {
+		if ($virtual_server_id != null) {
+			$vsid->item(0)->setAttribute('EntityID', $virtual_server_id);
+		} else {
+			$entity_ext->removeChild($vsid->item(0));
+		}
+	} else if ($virtual_server_id != null) {
+		$vsid = $doc->createElementNS('urn:sourceid.org:saml2:metadata-extension:v2', 'urn:VirtualIdentity');
+		$vsid->setAttribute('EntityID', $virtual_server_id);
+		$entity_ext->appendChild($vsid);
+	}
+
+	$dvsid = $xpath->query('urn:DefaultVirtualIdentity', $entity_ext);
+	if ($dvsid->length > 0) {
+		if ($virtual_server_id != null) {
+			$dvsid->item(0)->setAttribute('EntityID', $virtual_server_id);
+		} else {
+			$entity_ext->removeChild($dvsid->item(0));
+		}
+	} else if ($virtual_server_id != null) {
+		$dvsid = $doc->createElementNS('urn:sourceid.org:saml2:metadata-extension:v2', 'urn:DefaultVirtualIdentity');
+		$dvsid->setAttribute('EntityID', $virtual_server_id);
+		$entity_ext->appendChild($dvsid);
+	}	
+}
+
 /**
  * Create a connection (SP/IDP, SAML2.0/SAML1.1) in PingFederate.
  * 
@@ -618,24 +652,16 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 
 	$extensions = $xpath->query('md:Extensions', $desc);
 	if ($extensions->length > 0) {
-		echo " # WARN: ignoring unsupported extensions for entity \"$entityid\":\n";
-		echo $doc->saveXML($extensions->item(0)) . "\n\n";
+		#echo " # WARN: ignoring unsupported extensions for entity \"$entityid\":\n";
+		#echo $doc->saveXML($extensions->item(0)) . "\n\n";
 		$desc->removeChild($extensions->item(0));
 	}
 	
 	$extensions = $doc->createElementNS('urn:oasis:names:tc:SAML:2.0:metadata', 'md:Extensions');
 	$desc->insertBefore($extensions, $desc->firstChild);
-	$entity_ext = $doc->createElement('urn:EntityExtension');
+	$entity_ext = $doc->createElementNS('urn:sourceid.org:saml2:metadata-extension:v2', 'urn:EntityExtension');
 
-	if ($cfg['virtual-server-id'] != NULL) {
-		$vsid = $doc->createElement('urn:VirtualIdentity');
-		$vsid->setAttribute('EntityID', $cfg['virtual-server-id']);
-		$entity_ext->appendChild($vsid);
-		
-		$dvsid = $doc->createElement('urn:DefaultVirtualIdentity');
-		$dvsid->setAttribute('EntityID', $cfg['virtual-server-id']);
-		$entity_ext->appendChild($dvsid);
-	}
+	pf_set_virtual_server_id($doc, $xpath, $entity_ext, 'dummy');
 	
 /*
 	$encryption = $doc->createElement('urn:Encryption');
@@ -681,12 +707,15 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 
 	$soap_auth->appendChild($outgoing);
 	$dependencies->appendChild($soap_auth);
-
+	
 	$entity_ext->appendChild($dependencies);
 	$extensions->appendChild($entity_ext);
 	
 	$idp_desc = $xpath->query('md:IDPSSODescriptor', $desc);
 	if ($idp_desc->length > 0) {
+		
+		pf_set_virtual_server_id($doc, $xpath, $entity_ext, $cfg['virtual-server-id']['idp']);
+		
 		$username = urlencode('idp:' . $entityid);
 		$basic_incoming->setAttribute('username', $username);
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'idp'));
@@ -704,6 +733,9 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 
 	$sp_desc = $xpath->query('md:SPSSODescriptor', $desc);
 	if ($sp_desc->length > 0) {
+
+		pf_set_virtual_server_id($doc, $xpath, $entity_ext, $cfg['virtual-server-id']['sp']);
+		
 		$username = urlencode('sp:' . $entityid);
 		$basic_incoming->setAttribute('username', $username);
 		$desc->setAttribute('urn:name', pf_connection_name_duplicate_fix($cfg, $name, 'sp'));
@@ -748,6 +780,27 @@ function pf_connection_delete(&$cfg, $doc, $desc, $xpath) {
 	return true;
 }
 
+function pf_connection_metadata(&$cfg, $doc, $desc, $xpath) {
+	$entityid = $desc->getAttribute('entityID');
+	$roles = array();
+	$sso_desc = $xpath->query('md:IDPSSODescriptor', $desc);
+	if ($sso_desc->length > 0) $roles[] = 'IDP';
+	$sso_desc = $xpath->query('md:SPSSODescriptor', $desc);
+	if ($sso_desc->length > 0) $roles[] = 'SP';
+	foreach ($roles as $role) {
+		echo <<<XML
+    <upd:metadataUpdateType>
+        <upd:entityId>$entityid</upd:entityId>
+        <upd:connectionType>$role</upd:connectionType>
+        <upd:metadataUrl>$config['metadata-url']</upd:metadataUrl>
+        <upd:enableAutoMetadataUpdate>true</upd:enableAutoMetadataUpdate>
+        <upd:enableSignatureVerification>true</upd:enableSignatureVerification>
+    </upd:metadataUpdateType>
+XML;
+		echo "\n";
+	}
+}
+
 /**
  * Process a metadata document that contains an EntitiesDescriptor (with embedded EntityDescriptors) or one or more EntityDescriptors (not embedded).
  * 
@@ -758,6 +811,8 @@ function pf_connection_delete(&$cfg, $doc, $desc, $xpath) {
 function process_metadata(&$cfg, $doc, $function) {
 	$xpath = new DOMXpath($doc);
 	$xpath->registerNamespace('md', 'urn:oasis:names:tc:SAML:2.0:metadata');
+	$xpath->registerNamespace('urn', 'urn:sourceid.org:saml2:metadata-extension:v2');
+	
 	$descriptor = $xpath->query('/md:EntitiesDescriptor', $doc->documentElement);
 	if ($descriptor->length > 0) {
 			// process multiple EntityDescriptor's contained in an EntitiesDescriptor
@@ -790,6 +845,19 @@ if (count($argv) > 1) {
 			$cert = count($argv) > 3 ? $argv[3] : (array_key_exists('metadata-certificate', $config) ? $config['metadata-certificate'] : NULL);
 			$doc = metadata_retrieve_and_verify($md, ($cert !== NULL) ? file_get_contents($cert) : NULL);
 			process_metadata($config, $doc, 'pf_connection_' . $argv[1]);
+			break;
+		case 'metadata':
+			echo <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+    <upd:metadataUpdateSettings xmlns:upd="http://pingidentity.com/2015/01/update-metadata">
+XML;
+			$md = count($argv) > 2 ? $argv[2] : $config['metadata-url'];
+			$doc = metadata_retrieve_and_verify($md, NULL);
+			process_metadata($config, $doc, 'pf_connection_metadata');
+			echo <<<XML
+</upd:metadataUpdateSettings>
+
+XML;
 			break;
 		case 'get':
 			$result = pf_connection_get($config, $argv[2], count($argv) > 3 ? $argv[3] : "SP");
