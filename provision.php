@@ -147,7 +147,9 @@ $config = array(
 			'idp' => NULL,
 			'sp' => NULL
 	),
-				
+
+	'name-prefix' => '[' + gmdate('w', time()) . '] ',
+
 	// settings for the IDP and SP adapter that gets configured for the IDP and SP connections respectively
 	'adapter' => array(
 		// IDP adapter settings
@@ -642,7 +644,7 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 
 	if (pf_connection_skip($cfg, $entityid)) return NULL;
 	
-	$name = '[P] '; // to indicate that this connection was provisioned
+	$name = $cfg['name-prefix']; // to indicate that this connection was provisioned
 	$org = $xpath->query('md:Organization/md:OrganizationName', $desc);
 	$name .= ($org->length > 0) ? $org->item(0)->textContent : $entityid;
 
