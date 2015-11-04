@@ -148,7 +148,7 @@ $config = array(
 			'sp' => NULL
 	),
 
-	'name-prefix' => '[' + gmdate('w', time()) . '] ',
+	'name-prefix' => '[' . gmdate('w', time()) . '] ',
 
 	// settings for the IDP and SP adapter that gets configured for the IDP and SP connections respectively
 	'adapter' => array(
