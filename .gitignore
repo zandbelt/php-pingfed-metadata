@@ -1,2 +1,7 @@
 /.settings/
 /.project
+/inc-md-cert.pem
+/incommon_provision.php
+/InCommon-metadata.xml
+/ukfederation-metadata.pem
+/ukfederation-metadata.xml
