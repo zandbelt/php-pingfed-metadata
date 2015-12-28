@@ -136,7 +136,18 @@ $config = array(
 	'user' => 'heuristics',
 	// the password for the connection management API as configured in the API settings on the PingFederate admin console
 	'password' => 'Changeme1',
+		
+	// SSL server certificate validation
+	'ssl-verify' => true,
+#	'ssl-verify' => false,
 
+	// the URL to the SSO Directory Service API of your PingFederate server
+	'sso-dir-url' => 'https://localhost:9031/pf-ws/services/SSODirectoryService',
+	// the username for the SSO Directory Service API as configured in the API settings on the PingFederate admin console
+	'sso-dir-user' => 'heuristics',
+	// the password for the SSO Directory Service API as configured in the API settings on the PingFederate admin console
+	'sso-dir-password' => 'Changeme1',
+		
 	// the MD5 fingerprint of the private key that you want to use to sign outgoing SAML messages
 	// copy this from the certificate management detail screen in the "Digital Signing & XML Decryption Keys & Certificates" section
 	'signing-key-fingerprint' => '13E192DEF158C6185C41D0DDE954F0AB',
@@ -148,6 +159,7 @@ $config = array(
 			'sp' => NULL
 	),
 
+	// make sure the first character is distinctive for automatically provisioned connections
 	'name-prefix' => '[' . gmdate('w', time()) . '] ',
 
 	// settings for the IDP and SP adapter that gets configured for the IDP and SP connections respectively
@@ -277,6 +289,23 @@ function metadata_retrieve_and_verify($url, $cert = NULL) {
 }
 
 /**
+ * Execute an HTTP request.
+ * 
+ * @param string $url the URL to send the request to
+ * @param array $opts options for the request
+ * @param boolean $ssl_verify whether to verify the SSL server certificate
+ */
+function http_request($url, $opts, $ssl_verify = true) {
+	if ($ssl_verify == false) {
+		$opts["ssl"] = array(
+			"verify_peer" => false,
+			"verify_peer_name" => false,
+		);
+	}
+	return file_get_contents($url, false, stream_context_create($opts));
+}
+
+/**
  * Do a SOAP call to a specified SOAP endpoint, using HTTP basic auth.
  * 
  * @param string $url the SOAP endpoint
@@ -284,8 +313,9 @@ function metadata_retrieve_and_verify($url, $cert = NULL) {
  * @param string $body the SOAP body payload
  * @param string $user the username for HTTP basic auth
  * @param string $password the password for HTTP basic auth
+ * @param boolean $ssl_verify SSL server cert verification on/off
  */
-function soap_call_basic_auth($url,  $header, $body, $user, $password) {
+function soap_call_basic_auth($url,  $header, $body, $user, $password, $ssl_verify) {
 	$request = <<<XML
 <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
   <s:Header>$header</s:Header>
@@ -299,9 +329,7 @@ XML;
         'content' => $request
 		),
     );
-	$context  = stream_context_create($opts);
-	$result = file_get_contents($url, false, $context);
-	return $result;
+	return http_request($url, $opts, $ssl_verify);
 }
 
 /**
@@ -313,10 +341,10 @@ XML;
  * @param string $entityid the Entity identifier of the connection
  */
 function pf_connection_save(&$cfg, $doc, $desc, $entityid) {
-	#echo " # DEBUG: creating/updating " . $entityid . "\n";
+	echo " # DEBUG: creating/updating " . $entityid . "\n";
 	$doc->formatOutput = true;
 	$body = '<saveConnection><param0>' . htmlspecialchars($doc->saveXML($desc->cloneNode(true))) . '</param0><param1>true</param1></saveConnection>';	
-	$result = soap_call_basic_auth($cfg['connection-management-url'], '', $body, $cfg['user'], $cfg['password']);
+	$result = soap_call_basic_auth($cfg['connection-management-url'], '', $body, $cfg['user'], $cfg['password'], $cfg['ssl-verify']);
 	if ($result !== PF_SAVE_CONN_RSP_OK) {
 		echo "\n$result\n";
 		echo "\n # ERROR: uploading the connection for \"$entityid\" failed.\n";		
@@ -334,7 +362,7 @@ function pf_connection_save(&$cfg, $doc, $desc, $entityid) {
  */
 function pf_connection_get(&$cfg, $entityid, $type) {
 	$body = '<getConnection><param0>' . htmlspecialchars($entityid) . '</param0><param1>' . $type . '</param1></getConnection>';	
-	return soap_call_basic_auth($cfg['connection-management-url'], '', $body, $cfg['user'], $cfg['password']);
+	return soap_call_basic_auth($cfg['connection-management-url'], '', $body, $cfg['user'], $cfg['password'], $cfg['ssl-verify']);
 }
 
 /**
@@ -752,6 +780,25 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 
 /**
  * Delete a connection (SP/IDP, SAML2.0/SAML1.1) in PingFederate.
+ *
+ * @param array $cfg the global configuration
+ * @param string $entityid the entity ID of the conneciton
+ * @param string $role the role of the connection i.e. "IDP" or "SP"
+ */
+function pf_connection_delete_exec(&$cfg, $entityid, $role) {
+	echo " # DEBUG: deleting " . $entityid . "\n";
+	$body = '<deleteConnection><param0>' . htmlspecialchars($entityid) . '</param0><param1>' . $role . '</param1></deleteConnection>';
+	$result = soap_call_basic_auth($cfg['connection-management-url'], '', $body, $cfg['user'], $cfg['password'], $cfg['ssl-verify']);
+	if ($result !== PF_DELETE_CONN_RSP_OK) {
+		echo "\n$result\n";
+		echo "\n # ERROR: deleting the connection for \"$entityid\" failed.\n";
+		return false;
+	}
+	return true;
+}
+
+/**
+ * Delete a connection (SP/IDP, SAML2.0/SAML1.1) in PingFederate.
  * 
  * @param array $cfg the global configuration
  * @param DOMDocument $doc the metadata dom document
@@ -771,17 +818,21 @@ function pf_connection_delete(&$cfg, $doc, $desc, $xpath) {
 	if ($sso_desc->length > 0) $roles[] = 'SP';
 	
 	foreach ($roles as $role) {
-		$body = '<deleteConnection><param0>' . htmlspecialchars($entityid) . '</param0><param1>' . $role . '</param1></deleteConnection>';
-		$result = soap_call_basic_auth($cfg['connection-management-url'], '', $body, $cfg['user'], $cfg['password']);
-		if ($result !== PF_DELETE_CONN_RSP_OK) {
-			echo "\n$result\n";
-			echo "\n # ERROR: deleting the connection for \"$entityid\" failed.\n";
-			#exit;
+		if (pf_connection_delete_exec($cfg, $entityid, $role) != true) {
+			//exit;
 		}
 	}
 	return true;
 }
 
+/**
+ * Produce PF 8.1 metadata XML config file
+ * 
+ * @param unknown $cfg
+ * @param unknown $doc
+ * @param unknown $desc
+ * @param unknown $xpath
+ */
 function pf_connection_metadata(&$cfg, $doc, $desc, $xpath) {
 	$entityid = $desc->getAttribute('entityID');
 	$roles = array();
@@ -789,12 +840,13 @@ function pf_connection_metadata(&$cfg, $doc, $desc, $xpath) {
 	if ($sso_desc->length > 0) $roles[] = 'IDP';
 	$sso_desc = $xpath->query('md:SPSSODescriptor', $desc);
 	if ($sso_desc->length > 0) $roles[] = 'SP';
+	$url = $cfg['metadata-url'];
 	foreach ($roles as $role) {
 		echo <<<XML
     <upd:metadataUpdateType>
         <upd:entityId>$entityid</upd:entityId>
         <upd:connectionType>$role</upd:connectionType>
-        <upd:metadataUrl>$config['metadata-url']</upd:metadataUrl>
+        <upd:metadataUrl>$url</upd:metadataUrl>
         <upd:enableAutoMetadataUpdate>true</upd:enableAutoMetadataUpdate>
         <upd:enableSignatureVerification>true</upd:enableSignatureVerification>
     </upd:metadataUpdateType>
@@ -817,18 +869,108 @@ function process_metadata(&$cfg, $doc, $function) {
 	
 	$descriptor = $xpath->query('/md:EntitiesDescriptor', $doc->documentElement);
 	if ($descriptor->length > 0) {
-			// process multiple EntityDescriptor's contained in an EntitiesDescriptor
-			foreach ($xpath->query('md:EntityDescriptor', $descriptor->item(0)) as $desc) {
-				$result = $function($cfg, $doc, $desc, $xpath);
-			}
+
+		if ($function == "pf_connection_create") pf_connection_remove_obsolete($cfg, $descriptor, $xpath);
+				
+		// process multiple EntityDescriptor's contained in an EntitiesDescriptor
+		foreach ($xpath->query('md:EntityDescriptor', $descriptor->item(0)) as $desc) {
+			$result = $function($cfg, $doc, $desc, $xpath);
+		}
+
 	} else {
-			// process one or more EntityDescriptor's in a flat file
-			foreach ($xpath->query('/md:EntityDescriptor', $doc->documentElement) as $desc) {
-				$result = $function($cfg, $doc, $desc, $xpath);
-			}
+		// process one or more EntityDescriptor's in a flat file
+		foreach ($xpath->query('/md:EntityDescriptor', $doc->documentElement) as $desc) {
+			$result = $function($cfg, $doc, $desc, $xpath);
+		}
 	}
 	return true;
 }
+
+/**
+ * Delete connections that no longer exist (2).
+ * 
+ * @param array $cfg the global configuration
+ * @param string $role the role that we are processing i.e. "IDP" or "SP"
+ * @param array $new_list the new list of connections obtained from the source
+ * @param array $cur_list the current list of connections obtained from PingFederate
+ */
+function pf_connection_delete_non_existing(&$cfg, $role, $new_list, $cur_list) {
+	// remove connections that still exist from the current list
+	foreach ($new_list[$role] as $entityid) {
+		unset($cur_list[$role][$entityid]);
+	}
+
+	// now the current list is reduced to a list of the connections that no longer exist: remove those
+	foreach ($cur_list[$role] as $entityid => $name) {
+		// check if this is a previously provisioned connection
+		if (strrpos($name, $cfg['name-prefix'][0], -strlen($name)) !== FALSE) {
+			pf_connection_delete_exec($cfg, $entityid, $role);					
+		}
+	}
+}
+
+/**
+ * Remove connections that no longer exist (1).
+ *
+ * @param array $cfg the global configuration
+ * @param DOMElement $descriptor an EntityDescriptor element
+ * @param DOMXPath $xpath an xpath evaluator instance on the dom document
+*/
+function pf_connection_remove_obsolete(&$cfg, $descriptor, $xpath) {
+	$new_list = array("IDP" => array(), "SP" => array());
+	foreach ($xpath->query('md:EntityDescriptor', $descriptor->item(0)) as $desc) {
+		$idp_desc = $xpath->query('md:IDPSSODescriptor', $desc);
+		if ($idp_desc->length > 0) {
+			$new_list["IDP"][] = $desc->getAttribute('entityID');
+		}
+		$sp_desc = $xpath->query('md:SPSSODescriptor', $desc);
+		if ($sp_desc->length > 0) {
+			$new_list["SP"][] = $desc->getAttribute('entityID');
+		}
+	}
+	$cur_list = array(
+		"IDP" => pf_connection_list($cfg, "IDP"),
+		"SP" => pf_connection_list($cfg, "SP"),
+	);
+	pf_connection_delete_non_existing($cfg, 'IDP', $new_list, $cur_list);
+	pf_connection_delete_non_existing($cfg, 'SP', $new_list, $cur_list);
+}
+
+/**
+ * List current connections via the SSO Directory API
+ * 
+ * @param array $cfg the global configuration
+ * @param string $role the role that we are processing i.e. "IDP" or "SP"
+ * 
+ * @returns an array of entityid->name tuples
+ */
+function pf_connection_list(&$cfg, $role) {
+	$url = $cfg['sso-dir-url'] . '?method=';
+	if ($role == "IDP")
+		$url .= 'getIDPList';
+	else
+		$url .= 'getSPList';
+	$cred = sprintf('Authorization: Basic %s', base64_encode($cfg['sso-dir-user'] . ':' . $cfg['sso-dir-password']));
+	$opts = array(
+		'http' => array(
+			'method'  => 'GET',
+			'header'  => $cred,
+		),
+	);	
+	$result = http_request($url, $opts, $cfg['ssl-verify']);	
+	$doc = new DOMDocument(true);
+	$doc->loadXML($result);
+	$xpath = new DOMXpath($doc);
+	$xpath->registerNamespace('soapenv', 'http://schemas.xmlsoap.org/soap/envelope/');	
+	$result = array();
+	foreach ($xpath->query('/soapenv:Envelope/soapenv:Body/multiRef', $doc->documentElement) as $multiRef) {	
+		$company = $xpath->query('company', $multiRef);
+		$entityid = $xpath->query('entityId', $multiRef);
+		$result[$entityid->item(0)->textContent] = $company->item(0)->textContent;
+	}
+	return $result;
+}
+
 
 /** 
  * Printout program usage.
@@ -836,7 +978,7 @@ function process_metadata(&$cfg, $doc, $function) {
  * @param array $argv arguments passed on the commandline
  */
 function usage($argv) {
-	echo "Usage: $argv[0] [create|delete]\n";
+	echo "Usage: $argv[0] [create|delete|list|get|save|metadata]\n";
 }
 
 if (count($argv) > 1) {
@@ -865,6 +1007,10 @@ XML;
 			$result = pf_connection_get($config, $argv[2], count($argv) > 3 ? $argv[3] : "SP");
 			print html_entity_decode($result);
 		 	break;
+		case 'list':
+			$result = pf_connection_list($config, count($argv) > 2 ? $argv[2] : "SP");
+			print_r($result);
+			break;
 		case 'save':
 			$metadata = file_get_contents($argv[2]);
 			$doc = new DOMDocument(true);
