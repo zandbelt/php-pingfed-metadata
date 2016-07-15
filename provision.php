@@ -130,6 +130,10 @@ $config = array(
 #	'metadata-url' => 'ukfederation-metadata.xml',
 #	'metadata-certificate' => 'ukfederation-metadata.pem',
 
+	// the metadata URL identifier configured for this feed in Server Configuration -> Certificates -> Metadata URLs
+	// copy this from server/default/data/pingfederate-metadata-url.xml after you have configured it in the GUI
+	'metadata-url-id' => '7v63CHgkkyMKPao6aggYlk8Xr',
+		
 	// the URL to the connection management API of your PingFederate server
 	'connection-management-url' => 'https://localhost:9999/pf-mgmt-ws/ws/ConnectionMigrationMgr',
 	// the username for the connection management API as configured in the API settings on the PingFederate admin console
@@ -739,6 +743,12 @@ function pf_connection_create(&$cfg, $doc, $desc, $xpath) {
 	$dependencies->appendChild($soap_auth);
 	
 	$entity_ext->appendChild($dependencies);
+	
+	$mdUrlId = $doc->createElement('urn:MetadataUrlId', $cfg['metadata-url-id']);
+	$entity_ext->appendChild($mdUrlId);
+	$mdEnableUpdate = $doc->createElement('urn:enableAutoMetadataUpdate', 'true');
+	$entity_ext->appendChild($mdEnableUpdate);
+	
 	$extensions->appendChild($entity_ext);
 	
 	$idp_desc = $xpath->query('md:IDPSSODescriptor', $desc);
@@ -823,36 +833,6 @@ function pf_connection_delete(&$cfg, $doc, $desc, $xpath) {
 		}
 	}
 	return true;
-}
-
-/**
- * Produce PF 8.1 metadata XML config file
- * 
- * @param unknown $cfg
- * @param unknown $doc
- * @param unknown $desc
- * @param unknown $xpath
- */
-function pf_connection_metadata(&$cfg, $doc, $desc, $xpath) {
-	$entityid = $desc->getAttribute('entityID');
-	$roles = array();
-	$sso_desc = $xpath->query('md:IDPSSODescriptor', $desc);
-	if ($sso_desc->length > 0) $roles[] = 'IDP';
-	$sso_desc = $xpath->query('md:SPSSODescriptor', $desc);
-	if ($sso_desc->length > 0) $roles[] = 'SP';
-	$url = $cfg['metadata-url'];
-	foreach ($roles as $role) {
-		echo <<<XML
-    <upd:metadataUpdateType>
-        <upd:entityId>$entityid</upd:entityId>
-        <upd:connectionType>$role</upd:connectionType>
-        <upd:metadataUrl>$url</upd:metadataUrl>
-        <upd:enableAutoMetadataUpdate>true</upd:enableAutoMetadataUpdate>
-        <upd:enableSignatureVerification>true</upd:enableSignatureVerification>
-    </upd:metadataUpdateType>
-XML;
-		echo "\n";
-	}
 }
 
 /**
@@ -989,19 +969,6 @@ if (count($argv) > 1) {
 			$cert = count($argv) > 3 ? $argv[3] : (array_key_exists('metadata-certificate', $config) ? $config['metadata-certificate'] : NULL);
 			$doc = metadata_retrieve_and_verify($md, ($cert !== NULL) ? file_get_contents($cert) : NULL);
 			process_metadata($config, $doc, 'pf_connection_' . $argv[1]);
-			break;
-		case 'metadata':
-			echo <<<XML
-<?xml version="1.0" encoding="UTF-8"?>
-    <upd:metadataUpdateSettings xmlns:upd="http://pingidentity.com/2015/01/update-metadata">
-XML;
-			$md = count($argv) > 2 ? $argv[2] : $config['metadata-url'];
-			$doc = metadata_retrieve_and_verify($md, NULL);
-			process_metadata($config, $doc, 'pf_connection_metadata');
-			echo <<<XML
-</upd:metadataUpdateSettings>
-
-XML;
 			break;
 		case 'get':
 			$result = pf_connection_get($config, $argv[2], count($argv) > 3 ? $argv[3] : "SP");
